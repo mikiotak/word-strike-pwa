@@ -1,0 +1,249 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Word Strike — 5文字ワード当て</title>
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#111827">
+<link rel="apple-touch-icon" href="icon-180.png">
+<style>
+  :root{
+    --bg:#111827; --tile:#1f2937; --key:#374151; --text:#e5e7eb; --muted:#9ca3af;
+    --hit:#10b981; --near:#f59e0b; --miss:#4b5563;
+  }
+  *{box-sizing:border-box}
+  body{margin:0; font-family:system-ui,-apple-system,"Segoe UI",Roboto,"Hiragino Kaku Gothic ProN",Meiryo,sans-serif; background:var(--bg); color:var(--text);}
+  .app{max-width:520px; margin:0 auto; padding:20px 16px;}
+  h1{font-size:1.3rem; margin:0 0 8px; text-align:center}
+  .muted{color:var(--muted); font-size:.95rem; text-align:center; margin-bottom:12px;}
+  .board{display:grid; grid-template-rows:repeat(6,1fr); gap:8px; padding:8px 0; margin:10px 0 16px;}
+  .row{display:grid; grid-template-columns:repeat(5,1fr); gap:8px; height:56px;}
+  .tile{display:flex; align-items:center; justify-content:center; border-radius:8px; background:var(--tile); font-weight:700; font-size:1.4rem; text-transform:uppercase;}
+  .tile.reveal{animation:flip .5s ease;}
+  @keyframes flip{0%{transform:rotateX(0)}50%{transform:rotateX(90deg)}100%{transform:rotateX(0)}}
+  .hit{background:var(--hit)!important;color:#111}
+  .near{background:var(--near)!important;color:#111}
+  .miss{background:var(--miss)!important;color:#d1d5db}
+  .keyboard{display:grid; gap:8px; user-select:none;}
+  .kbrow{display:flex; gap:6px; justify-content:center;}
+  .key{background:var(--key); color:#fff; border:0; border-radius:8px; padding:12px 10px; font-weight:600; cursor:pointer; min-width:32px;}
+  .key.wide{min-width:64px;}
+  .key.hit{background:var(--hit); color:#111}
+  .key.near{background:var(--near); color:#111}
+  .key.miss{background:var(--miss); color:#d1d5db}
+  .panel{display:flex; gap:8px; justify-content:center; margin-top:12px; flex-wrap:wrap;}
+  .btn{background:#2563eb; color:#fff; border:0; border-radius:10px; padding:10px 14px; font-weight:600; cursor:pointer;}
+  .btn.ghost{background:#374151;}
+  .msg{text-align:center; min-height:24px; margin:8px 0; font-weight:600;}
+</style>
+</head>
+<body>
+<div class="app">
+  <h1>Word Strike — 5文字ワード当て</h1>
+  <div class="muted">6回以内に英単語を当てよう（A–Z 5文字／重複OK）</div>
+
+  <div id="board" class="board"></div>
+  <div id="msg" class="msg"></div>
+
+  <div class="keyboard" id="keyboard"></div>
+
+  <div class="panel">
+    <button class="btn" id="giveup">ギブアップ</button>
+    <button class="btn ghost" id="newgame">新しいゲーム</button>
+  </div>
+</div>
+
+<script>
+(() => {
+  const WORDS = [
+    "APPLE","BRAIN","CANDY","DELTA","EAGER","FAITH","GLASS","HONEY","IVORY","JELLY",
+    "KNIFE","LEMON","MARCH","NOBLE","OCEAN","PEARL","QUICK","ROBOT","SAUCE","TIGER",
+    "ULTRA","VIVID","WATER","XENON","YEAST","ZEBRA","ALPHA","BRAVE","CHEER","DREAM",
+    "EARTH","FANCY","GIANT","HAPPY","IDEAL","JAZZY","KOALA","LIGHT","MANGO","NURSE",
+    "OPERA","PIANO","QUEEN","RIVER","SMILE","TRACK","UNION","VOICE","WHEEL","YOUNG",
+    "ZESTY","ANGEL","BLEND","CLOUD","DRIVE","ELITE","FLAME","GRAPE","HOUSE","INDEX",
+    "JUMBO","KARMA","LASER","METAL","NINJA","OLIVE","PANDA","QUILT","RANGE","SHARE",
+    "THEME","URBAN","VIRAL","WHALE","XRAYS","YUMMY","ZONED","ARBOR","BERRY","CHESS",
+    "DODGE","EMBED","FROST","GHOST","HUMAN","INBOX","JOKER","KNEEL","LUNCH","MOTOR",
+    "NORTH","OPINE","PRIZE","QUARK","ROCKY","SOLAR","TRUST","USAGE","VINYL","WRIST"
+  ];
+  const rows = 6, cols = 5;
+  const board = document.getElementById("board");
+  const msg = document.getElementById("msg");
+  const kb = document.getElementById("keyboard");
+  const giveupBtn = document.getElementById("giveup");
+  const newBtn = document.getElementById("newgame");
+
+  let secret = "";
+  let curRow = 0, curCol = 0;
+  let grid = [];
+  let finished = false;
+  const keyStates = {}; // letter -> 'hit'|'near'|'miss'
+
+  function pickSecret() { return WORDS[Math.floor(Math.random()*WORDS.length)]; }
+
+  function initBoard(){
+    board.innerHTML = "";
+    grid = [];
+    for(let r=0;r<rows;r++){
+      const row = document.createElement("div");
+      row.className = "row";
+      const arr = [];
+      for(let c=0;c<cols;c++){
+        const tile = document.createElement("div");
+        tile.className = "tile";
+        tile.textContent = "";
+        row.appendChild(tile);
+        arr.push(tile);
+      }
+      board.appendChild(row);
+      grid.push(arr);
+    }
+  }
+
+  function initKeyboard(){
+    kb.innerHTML = "";
+    const layout = ["QWERTYUIOP","ASDFGHJKL","ZXCVBNM"];
+    for(const line of layout){
+      const row = document.createElement("div");
+      row.className = "kbrow";
+      if(line==="ZXCVBNM"){
+        const enter = makeKey("ENTER","wide"); row.appendChild(enter);
+      }
+      for(const ch of line){
+        row.appendChild(makeKey(ch));
+      }
+      if(line==="ZXCVBNM"){
+        const back = makeKey("⌫","wide"); row.appendChild(back);
+      }
+      kb.appendChild(row);
+    }
+  }
+
+  function makeKey(label, wide=false){
+    const btn = document.createElement("button");
+    btn.className = "key" + (wide?" wide":"");
+    btn.textContent = label;
+    btn.addEventListener("click", () => onKey(label));
+    return btn;
+  }
+
+  function setKeyState(letter, state){
+    const upper = letter.toUpperCase();
+    if(!/[A-Z]/.test(upper)) return;
+    const prev = keyStates[upper];
+    const rank = {miss:0, near:1, hit:2};
+    if(prev && rank[prev] >= rank[state]) return;
+    keyStates[upper] = state;
+    [...kb.querySelectorAll(".key")].forEach(b => {
+      if(b.textContent===upper){
+        b.classList.remove("hit","near","miss");
+        b.classList.add(state);
+      }
+    });
+  }
+
+  function onKey(k){
+    if(finished) return;
+    if(k==="ENTER"){
+      submit();
+    } else if(k==="⌫"){
+      if(curCol>0){
+        curCol--;
+        grid[curRow][curCol].textContent = "";
+      }
+    } else if(/^[A-Z]$/.test(k)){
+      if(curCol<cols){
+        grid[curRow][curCol].textContent = k;
+        curCol++;
+      }
+    }
+  }
+
+  function handleKeydown(e){
+    if(finished) return;
+    const k = e.key;
+    if(k==="Enter"){ submit(); }
+    else if(k==="Backspace"){
+      if(curCol>0){ curCol--; grid[curRow][curCol].textContent=""; }
+    } else if(/^[a-zA-Z]$/.test(k)){
+      if(curCol<cols){ grid[curRow][curCol].textContent = k.toUpperCase(); curCol++; }
+    }
+  }
+
+  function scoreRow(guess, answer){
+    const res = Array(cols).fill("miss");
+    const a = answer.split("");
+    const g = guess.split("");
+    for(let i=0;i<cols;i++){
+      if(g[i]===a[i]){ res[i]="hit"; a[i]=null; g[i]=null; }
+    }
+    for(let i=0;i<cols;i++){
+      if(g[i] && a.includes(g[i])){
+        res[i]="near";
+        const idx = a.indexOf(g[i]);
+        a[idx]=null;
+      }
+    }
+    return res;
+  }
+
+  function submit(){
+    if(curCol<cols){ showMsg("5文字入力してください"); return; }
+    const guess = grid[curRow].map(t=>t.textContent).join("");
+    if(!/^[A-Z]{5}$/.test(guess)){ showMsg("A–Zの5文字で入力"); return; }
+
+    const res = scoreRow(guess, secret);
+    res.forEach((st, i) => {
+      const t = grid[curRow][i];
+      setTimeout(() => {
+        t.classList.add("reveal");
+        t.classList.add(st);
+        setKeyState(guess[i], st);
+      }, i*120);
+    });
+
+    if(guess===secret){
+      finished = true;
+      setTimeout(()=>{ showMsg("🎉 正解！"); }, 650);
+      return;
+    }
+    curRow++; curCol=0;
+    if(curRow>=rows){
+      finished = true;
+      setTimeout(()=>{ showMsg(`答え：${secret}`); }, 200);
+    } else {
+      showMsg("");
+    }
+  }
+
+  function showMsg(s){ msg.textContent = s; }
+
+  function giveUp(){
+    if(finished) return;
+    finished = true;
+    showMsg(`ギブアップ！答え：${secret}`);
+  }
+
+  function newGame(){
+    secret = pickSecret();
+    curRow=0; curCol=0; finished=false;
+    Object.keys(keyStates).forEach(k=>delete keyStates[k]);
+    initBoard(); initKeyboard(); showMsg("");
+  }
+
+  initBoard(); initKeyboard(); newGame();
+  document.addEventListener("keydown", handleKeydown);
+  giveupBtn.addEventListener("click", giveUp);
+  newBtn.addEventListener("click", newGame);
+
+  if ('serviceWorker' in navigator) {
+    window.addEventListener('load', () => {
+      navigator.serviceWorker.register('./service-worker.js').catch(console.error);
+    });
+  }
+})();
+</script>
+</body>
+</html>
