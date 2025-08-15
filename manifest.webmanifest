@@ -1,5 +1,5 @@
 {
-  "name": "Word Strike — 5文字ワード当て",
+  "name": "Word Strike — 5文字ワード当て（ヒント付き）",
   "short_name": "WordStrike",
   "start_url": ".",
   "display": "standalone",
